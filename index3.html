@@ -1,0 +1,361 @@
+<!DOCTYPE html>
+<html lang="en">
+    <head>
+        <meta charset="utf-8">
+        <title>Exploring Fugues</title>
+        <script type="text/javascript" src="../d3/d3.v3.js"></script>
+        <script src="https://d3js.org/d3.v4.min.js"></script>
+        <style type="text/css">
+        /*no style yet */
+        </style>
+    </head>
+    <body>
+    
+        
+            
+        <script type="text/javascript">
+
+            //Width and height
+            var w = 3000;
+            var h = 700;
+            var padding = 10;
+            
+            //Create SVG element
+            var svg = d3.select("body")
+                        .append("svg")
+                        .attr("width", w)
+                        .attr("height", h);
+            //the coordinates of the grand staff
+            var staffCoords = [[[0, 43], [w, 43]], 
+                               [[0, 47], [w, 47]],
+                               [[0, 50], [w, 50]],
+                               [[0, 53], [w, 53]],
+                               [[0, 57], [w, 57]],
+                               [[0, 64], [w, 64]],
+                               [[0, 67], [w, 67]],
+                               [[0, 71], [w, 71]],
+                               [[0, 74], [w, 74]],
+                               [[0, 77], [w, 77]] ];
+
+            var staffGroup = svg.selectAll("g .staff")
+                                    .data(staffCoords)      
+                                    .enter()
+                                    .append("g")
+                                    .attr("class", "staff");
+
+            var data = d3.json("../wtc2f06.json", function(dataset) {
+
+                //fill the array with noteY, timeX, interval, rounded duration, selected flag
+                var scoreVoices = [];
+                for(var i = 0; i < dataset.tracks.length; i++) {
+                    var noteData = [];
+                    if(dataset.tracks[i].notes){
+                        for (var j = 0; j < dataset.tracks[i].notes.length; j++) {
+                            var local = {};
+
+                            dataset.tracks[i].notes[j].selected = false;
+                            local.selected = false;
+                            local.keyID = [i, j];
+
+                            
+                            local.timeX = dataset.tracks[i].notes[j].time;
+                            local.noteY = dataset.tracks[i].notes[j].midi;
+                            local.duration = Math.round(dataset.tracks[i].notes[j].duration * 1000) / 1000;
+                            
+                            //Store the interval TO the next note
+                            if(j < (dataset.tracks[i].notes.length - 1)) {
+                                local.interval = dataset.tracks[i].notes[j+1].midi - dataset.tracks[i].notes[j].midi;
+                                dataset.tracks[i].notes[j].interval = dataset.tracks[i].notes[j+1].midi - dataset.tracks[i].notes[j].midi;
+                            }
+                            noteData.push(local);
+                        }
+                    scoreVoices.push(noteData);
+                    }
+                }
+
+                
+                //find the fugue subject!
+                var tempSubjects = [];
+                var fugueSubjectStarting = [2, 1, 2, -2, -1, 1, 2, 2, 1, -1, -2, 2, 5, -1, -1, -1, -1, -1];
+                var foundSubjects = [];
+
+                function findSubjects( fugueSubject ) {
+                    foundSubjects = [];
+                    for(var i = 0; i < scoreVoices.length ; i++) {
+                        for(var j = 0; j < scoreVoices[i].length - fugueSubject.length; j++) {
+                            var arrayWholeSubjects = [];
+                            var foundWholeFugue = false;
+                            for(var k = 0; k < fugueSubject.length; k++) {
+                                var foundLocalNote = [];
+                                if(scoreVoices[i][j + k].interval === fugueSubject[k]) {
+                                    foundLocalNote.noteY = scoreVoices[i][j + k].noteY;
+                                    foundLocalNote.timeX = scoreVoices[i][j + k].timeX;
+                                    foundLocalNote.keyID = [ i , j ];
+                                    foundWholeFugue = true;
+
+                                    arrayWholeSubjects.push(foundLocalNote);
+                                    
+                                } else {
+                                    foundWholeFugue = false;
+                                    k = fugueSubject.length +3;
+                                } 
+                            }
+                            if(foundWholeFugue) {
+                                    var foundLocalArray = [];
+                                    foundLocalArray.noteY = scoreVoices[i][j + fugueSubject.length].noteY;
+                                    foundLocalArray.timeX = scoreVoices[i][j + fugueSubject.length].timeX;
+                                    foundLocalArray.voice = scoreVoices[i];
+                                    arrayWholeSubjects.push(foundLocalArray);
+                                    foundSubjects.push(arrayWholeSubjects);
+                            }
+                            
+                        }
+                    }
+                    updateFugueSubjects(foundSubjects);
+                }
+                findSubjects(fugueSubjectStarting);
+                //console.log(foundSubjects);
+
+                var xScale = d3.scale.linear()
+                                .domain([0, dataset.duration])
+                                .range([padding, w - padding]);
+
+                var yScale = d3.scale.linear()
+                                .domain([20, 88])
+                                .range([h-padding, padding]);
+                //Draws the staff background lines
+                var staffDraw = d3.svg.line()
+                                .x(function(d, i) {return xScale(d[0]);})
+                                .y(function(d, i) {return yScale(d[1]);})
+                                .interpolate("linear");
+
+                var staffLine = staffGroup.append('path')
+                                .datum(function(d){return d;})
+                                .attr("d", staffDraw)
+                                .attr("stroke", "black")
+                                .attr("stroke-width", 1)
+                                .attr("fill", "none");
+
+                //Creates a <g> per voice, handing off an object { noteY, timeX, interval} per note
+                var lines = svg.selectAll("g .voices")
+                                .data(scoreVoices)      
+                                .enter()
+                                .append("g")
+                                .attr("class", "voices");
+
+                //Called to draw the line per voice
+                var line = d3.svg.line()
+                                .x(function(d, i) {return xScale(d.timeX);})
+                                .y(function(d, i) {return yScale(d.noteY);})
+                                .interpolate("cubic");
+
+                //Draws a line per voice (<g>). Handed array of objects{noteY, timeX, interval}
+                var path = lines.append('path')
+                                .datum(function(d){return d;})
+                                .attr("d", line)
+                                .attr("stroke", "blue")
+                                .attr("stroke-width", 2)
+                                .attr("fill", "none")
+                                .attr("opacity", .4);
+/*
+                //Creates a <g> per subject found, handing off an object { noteY, timeX, interval} per note
+                var subjects = svg.selectAll("g .subjects")
+                                .data(foundSubjects)      
+                                .enter()
+                                .append("g")
+                                .attr("class", "subjects");
+
+                //Draws a line per voice (<g>) per subject found. Handed array of objects{noteY, timeX, interval}
+                var subjectPath = subjects.append('path')
+                                .datum(function(d){return d;})
+                                .attr("d", line)
+                                .attr("stroke", "blue")
+                                .attr("stroke-width", 5)
+                                .attr("fill", "blue")
+                                .attr("opacity", 1);  */          
+
+                //Creates the <g> per track inside json file
+                var tracks = svg.selectAll("g .tracks")
+                                .data(scoreVoices)      
+                                .enter()
+                                .append("g")
+                                .attr("class", "tracks");
+
+                //creates a circle per note in each <g> element
+                tracks.selectAll("circle")
+                    .data(function(d) {return d;})  
+                    .enter()
+                   .append("circle")
+                   .attr("cx", function(d, i) {
+                        return xScale(d.timeX);
+                   })
+                   .attr("cy", function(d, i) {
+                        return yScale(d.noteY);
+                   })
+                   .attr("r", function(d, i) {
+                        return Math.sqrt(xScale(d.duration)) * 1.5;
+                   })
+                   .attr("opacity", .8)
+                   .attr("fill", function(d, i) {
+                        if (d.selected) {
+                            return "orange";
+                        } else {
+                            return fill(d.noteY);
+                        }
+                    })
+                   /*
+                   .on("mouseover", function() {
+                        d3.select(this)
+                            .attr("fill", "orange")
+                            .attr("opacity", 1);
+                   })
+                   .on("mouseout", function(d) {
+                        d3.select(this)
+                            .attr("fill", fill(d.midi))
+                            .attr("opacity", .8);
+                   })
+                   */
+                   .on("click", function(d) {
+                        if(d.selected) {
+                            d3.select(this)
+                                .attr("fill", fill(d.noteY));
+                            d.selected = false;
+                            tempSubjects = [];
+                        } else {
+                            d3.select(this)
+                                .attr("fill", "orange");
+                            d.selected = true;
+                            tempSubjects.push(d.interval);
+                            checkVoicesForSubject();
+                            
+                            
+
+                        }
+                        
+
+                   })
+                ;
+                
+                function checkVoicesForSubject() {
+                    if(tempSubjects.length > 3) {
+                                fugueSubject = [];
+                                foundSubjects = [];
+                                fugueSubject.push(tempSubjects);
+                                findSubjects(tempSubjects);
+                                d3.select('body').append('code').text(foundSubjects.length + ' fugue subjects found') ;
+                            }
+                }
+
+                function updateFugueSubjects(newData) {
+
+                    var newSubjects = svg.selectAll("g .subjects")
+                                        .data(foundSubjects)     
+                                        .enter()
+                                        .append('g')
+                                        .attr('class', "subjects");
+
+                                    newSubjects
+                                        .exit()
+                                        .transition()
+                                        .style('opacity', 0)
+                                        .remove();
+
+                    var eachSubject = newSubjects.append('path')
+                                        .datum(function(d){ return d; })
+                                        .attr("d", line)
+                                        .attr("stroke", "blue")
+                                        .attr("stroke-width", 5)
+                                        .attr("fill", "blue")
+                                        .attr("opacity", 1);
+                                        eachSubject
+                                        .exit()
+                                        .remove();
+
+                                    
+
+
+                                    /*
+                                .attr("d", line)
+                                .attr("stroke", "blue")
+                                .attr("stroke-width", 5)
+                                .attr("fill", "blue")
+                                .attr("opacity", 1);
+                                console.log(foundSubjects);*/
+/*
+                //Creates a <g> per subject found, handing off an object { noteY, timeX, interval} per note
+                var subjects = svg.selectAll("g .subjects")
+                                .data(foundSubjects)      
+                                .enter()
+                                .append("g")
+                                .attr("class", "subjects");
+
+                //Draws a line per voice (<g>) per subject found. Handed array of objects{noteY, timeX, interval}
+                var subjectPath = subjects.append('path')
+                                .datum(function(d){return d;})
+                                .attr("d", line)
+                                .attr("stroke", "blue")
+                                .attr("stroke-width", 5)
+                                .attr("fill", "blue")
+                                .attr("opacity", 1);  */
+
+
+
+
+
+
+                }
+
+                function fill(noteNumber) {
+                    
+                    if(noteNumber % 12 === 2) {
+                            return "blue";
+                        } else if(noteNumber % 12 === 3) {
+                            return "blueviolet";
+                        } else if(noteNumber % 12 === 4) {
+                            return "purple";
+                        } else if(noteNumber % 12 === 5) {
+                            return "magenta";
+                        } else if(noteNumber % 12 === 6) {
+                            return "red";
+                        } else if(noteNumber % 12 === 7) {
+                            return "darkred";
+                        } else if(noteNumber % 12 === 8) {
+                            return "orange";
+                        } else if(noteNumber % 12 === 9) {
+                            return "gold";
+                        } else if(noteNumber % 12 === 10) {
+                            return "yellow";
+                        } else if(noteNumber % 12 === 11) {
+                            return "greenyellow";
+                        } else if(noteNumber % 12 === 0) {
+                            return "green";
+                        } else if(noteNumber % 12 === 1) {
+                            return "teal";
+                            } 
+                        }
+                
+
+/* This doesn't work because it doesn't allow for interaction through the rectangle
+                //Next few lines enable Pan and Zoom!
+                //Needs to zoom more in the noteY direction than the timeX direction
+                var g = d3.selectAll("g");
+
+                //d3.zoom() is taken from D3 V.4
+                svg.append('rect')
+                    .attr("width", w)
+                    .attr("height", h)
+                    .style("fill", "none")
+                    .style("pointer-events", "all")
+                    .call(d3.zoom()
+                            .scaleExtent([1/4, 16])
+                            .on("zoom", zoomed));
+                function zoomed() {
+                    g.attr("transform", d3.event.transform);
+                }*/
+            });
+
+
+            
+        </script>
+    </body>
+</html>
